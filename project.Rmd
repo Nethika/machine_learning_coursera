@@ -1,0 +1,169 @@
+---
+title: "Practical Machine Learning"
+author: "Nethika Suraweera"
+date: "12/3/2017"
+output:
+  html_document:
+    keep_md: yes
+    toc: yes
+---
+
+# Background and Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har 
+
+
+The goal of this project is to predict the manner in which they did the exercise. This is the “classe” variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+
+# Data Processing
+
+```{r, echo=TRUE,include=TRUE, warning = FALSE}
+#load libraries
+library(caret)
+library(rattle)
+library(knitr)
+library(RColorBrewer)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(survival)
+
+#load data
+set.seed(12345)
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+
+
+#Partioning the training set into two for cross validation
+inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
+crossTraining <- training[inTrain, ]
+crossTesting <- training[-inTrain, ]
+#160 cols
+
+#clean data
+
+#Remove NearZeroVariance columns
+
+nzv <- nearZeroVar(crossTraining, saveMetrics=TRUE)
+crossTraining <- crossTraining[,nzv$nzv==FALSE]
+
+nzv<- nearZeroVar(crossTesting,saveMetrics=TRUE)
+crossTesting <- crossTesting[,nzv$nzv==FALSE]
+#132 cols
+
+#Remove columns of the training set that contain any missing values.
+
+crossTraining <- crossTraining[, colSums(is.na(crossTraining)) == 0]
+crossTesting <- crossTesting[, colSums(is.na(crossTesting)) == 0]
+#59 cols
+
+#remove 1st column
+crossTraining <- crossTraining[, -1]
+crossTesting <- crossTesting[, -1]
+#58 cols
+
+```
+
+
+# Prediction Algorithms
+
+## Decision Trees
+
+```{r, echo=TRUE,include=TRUE, warning = FALSE}
+set.seed(12345)
+modFitDT <- rpart(classe ~ ., data=crossTraining, method="class")
+fancyRpartPlot(modFitDT)
+
+predictionsDT <- predict(modFitDT, crossTesting, type = "class")
+cmtree <- confusionMatrix(predictionsDT, crossTesting$classe)
+cmtree
+```
+
+## Random Forests
+
+```{r, echo=TRUE,include=TRUE, warning = FALSE}
+set.seed(12345)
+modFitRF <- randomForest(classe ~ ., data=crossTraining)
+predictionRF <- predict(modFitRF, crossTesting, type = "class")
+cmrf <- confusionMatrix(predictionRF, crossTesting$classe)
+cmrf
+plot(modFitRF)
+```
+
+
+
+## Generalized Boosted Regression
+
+```{r, echo=TRUE,include=TRUE, warning = FALSE}
+set.seed(12345)
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 5,
+                           repeats = 1)
+
+gbmFit1 <- train(classe ~ ., data=crossTraining, method = "gbm",
+                 trControl = fitControl,
+                 verbose = FALSE)
+#gbmFit1 <- train(classe ~ .,
+#                       data = crossTraining,
+#                       method="gbm", 
+#                       verbose = F)
+
+
+gbmFinMod1 <- gbmFit1$finalModel
+
+gbmPredTest <- predict(gbmFit1, newdata=crossTesting)
+gbmAccuracyTest <- confusionMatrix(gbmPredTest, crossTesting$classe)
+gbmAccuracyTest
+
+plot(gbmFit1, ylim=c(0.9, 1))
+```
+
+# Predicting Results on the Test Data
+
+Acuracy from different methos are as follows: 
+
+* Random Forests : 99.89 %
+
+* Decision Trees : 87.89 %
+
+* Generalized Boosted Regression : 99.58 %
+
+Therefore we use Random Forests to predic results on the test data.
+
+The expected out-of-sample error is 100-99.89 = 0.11%.
+
+```{r, echo=TRUE,include=TRUE, warning = FALSE}
+
+#Clean 'testing' data set.
+
+#Coerce the data into the same type
+
+common <- intersect(names(crossTraining), names(testing)) 
+for (p in common) { 
+  if (class(crossTraining[[p]]) == "factor") { 
+    levels(testing[[p]]) <- levels(crossTraining[[p]]) 
+  } 
+}
+
+#use Random Forests to predic results on the test data
+prediction_test <- predict(modFitRF, testing, type = "class")
+prediction_test
+
+# Write the results to a text file for submission
+
+predDF = data.frame(
+  row_id = testing$X,
+  prediction = prediction_test)
+
+write.csv(predDF,'predictions.csv')
+
+```
+
+
+
+
+
